@@ -72,9 +72,15 @@ async function loadHomework(){
     const r=await fetch(SUPABASE_URL+'/rest/v1/homework_assignments?student_code=eq.sasha&status=eq.assigned&select=*&order=created_at.desc',{headers:{'apikey':SUPABASE_PUBLISHABLE_KEY}});
     if(!r.ok)throw new Error();const rows=await r.json();
     if(!rows.length){box.innerHTML='';return}
-    const cards=await Promise.all(rows.map(async x=>{const img=await signedPhoto(x.photo_path);const subject=x.subject==='math'?'Математика':x.subject==='russian'?'Русский язык':'Другой предмет';return '<article class="assigned-card"><span class="pill">'+subject+'</span><h2>'+escapeHtml(x.title)+'</h2>'+(x.description?'<p>'+escapeHtml(x.description)+'</p>':'')+(img?'<img src="'+img+'" alt="Фото домашнего задания">':'')+'</article>'}));
+    const cards=await Promise.all(rows.map(async x=>{const img=await signedPhoto(x.photo_path);const subject=x.subject==='math'?'Математика':x.subject==='russian'?'Русский язык':'Другой предмет';const sr=await fetch(SUPABASE_URL+'/rest/v1/homework_submissions?homework_id=eq.'+x.id+'&student_code=eq.sasha&select=id,status,created_at&order=created_at.desc&limit=1',{headers:{'apikey':SUPABASE_PUBLISHABLE_KEY}});const subs=sr.ok?await sr.json():[];const last=subs[0];const submit=last?'<div class="review-state">🕒 На проверке у Лены</div>':'<input id="solution-'+x.id+'" class="photo-input" type="file" accept="image/jpeg,image/png,image/webp" capture="environment"><button onclick="submitHomework('+x.id+')">✅ Я сделал · прикрепить тетрадь</button><span id="solution-status-'+x.id+'" class="upload-status"></span>';return '<article class="assigned-card"><span class="pill">'+subject+'</span><h2>'+escapeHtml(x.title)+'</h2>'+(x.description?'<p>'+escapeHtml(x.description)+'</p>':'')+(img?'<div class="photo-label">Задание</div><img src="'+img+'" alt="Фото домашнего задания">':'')+'<div class="solution-area">'+submit+'</div></article>'}));
     box.innerHTML='<h2>📌 Новое от мамы</h2><div class="assigned-grid">'+cards.join('')+'</div>';
   }catch(e){box.innerHTML='<p class="sub">Не удалось обновить новые задания.</p>'}
 }
 function escapeHtml(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 loadHomework();
+
+function submitHomework(id){
+ const input=document.getElementById('solution-'+id);input.click();
+ if(input.dataset.bound)return;input.dataset.bound='1';
+ input.addEventListener('change',async()=>{const file=input.files&&input.files[0];if(!file)return;const status=document.getElementById('solution-status-'+id);status.textContent='⏳ Отправляю работу…';try{const photo_path=await uploadToHomeworkBucket(file,'solutions');const row={homework_id:id,student_code:'sasha',photo_path,status:'waiting_review'};const r=await fetch(SUPABASE_URL+'/rest/v1/homework_submissions',{method:'POST',headers:{'apikey':SUPABASE_PUBLISHABLE_KEY,'Content-Type':'application/json','Prefer':'return=minimal'},body:JSON.stringify(row)});if(!r.ok)throw new Error('Не удалось отправить работу');status.textContent='🕒 На проверке у Лены';setTimeout(loadHomework,400)}catch(e){status.textContent='❌ '+e.message}})
+}
