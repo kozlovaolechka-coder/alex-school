@@ -6,7 +6,7 @@ const tasks=[
 {title:"➗ Деление с остатком",text:"Для 45 : 14 сначала нужно найти число, которое не больше 45 и делится на 14. Какое?",a:["42","44","28"],ok:0,h:"Вспомни произведения 14: 14, 28, 42… Какое самое близкое к 45, но не больше него?"}
 ];let n=0,stars=0,hints=0,startAt=0;let wrong=0;
 document.querySelectorAll('#nav button').forEach(b=>b.onclick=()=>showPage(b.dataset.page,b));
-function showPage(id,b){document.querySelectorAll('.page').forEach(x=>x.classList.add('hidden'));document.getElementById(id).classList.remove('hidden');document.querySelectorAll('#nav button').forEach(x=>x.classList.remove('on'));b?.classList.add('on');window.scrollTo({top:0,behavior:'smooth'})}
+function showPage(id,b){document.querySelectorAll('.page').forEach(x=>x.classList.add('hidden'));document.getElementById(id).classList.remove('hidden');document.querySelectorAll('#nav button').forEach(x=>x.classList.remove('on'));b?.classList.add('on');if(id==='homework'||id==='today')loadHomework();window.scrollTo({top:0,behavior:'smooth'})}
 function startRepair(){showPage('today',document.querySelector('[data-page=today]'));n=0;stars=0;hints=0;wrong=0;startAt=Date.now();document.querySelector('#stars').textContent=0;document.querySelector('#mission').classList.remove('hidden');document.querySelector('.actions').style.display='flex';render();document.querySelector('#mission').scrollIntoView({behavior:'smooth'})}
 function render(){let t=tasks[n];bar.style.width=(n/tasks.length*100)+'%';lena.classList.add('hidden');task.innerHTML='<h2>'+t.title+'</h2><p>'+t.text+'</p>'+(t.visual||'')+'<div class="answers">'+t.a.map((x,i)=>'<button onclick="answer('+i+')">'+x+'</button>').join('')+'</div>'}
 function answer(i){let t=tasks[n];if(i===t.ok){stars++;document.querySelector('#stars').textContent=stars;n++;n<tasks.length?render():finish()}else{wrong++;say("Это место для прокачки. Не угадываем. Нажми «Лена, помоги» — разберём только следующий шаг.")}}
@@ -36,3 +36,45 @@ function showLast(){let e=localStorage.getItem('alex_last_result');if(e)document
 function pickPhoto(id){document.getElementById(id).click()}
 document.querySelectorAll('.photo-input').forEach(input=>input.addEventListener('change',()=>uploadHomeworkPhoto(input)));
 async function uploadHomeworkPhoto(input){const file=input.files&&input.files[0];if(!file)return;const status=document.getElementById(input.id==='mathPhoto'?'mathPhotoStatus':'rusPhotoStatus');if(!['image/jpeg','image/png','image/webp'].includes(file.type)){status.textContent='Нужен JPG, PNG или WEBP';return}if(file.size>10*1024*1024){status.textContent='Фото больше 10 МБ';return}status.textContent='⏳ Загружаю…';const ext=(file.name.split('.').pop()||'jpg').toLowerCase().replace(/[^a-z0-9]/g,'');const subject=input.id==='mathPhoto'?'math':'russian';const path='sasha/'+subject+'/'+Date.now()+'-'+Math.random().toString(36).slice(2,8)+'.'+ext;try{const r=await fetch(SUPABASE_URL+'/storage/v1/object/homework-photos/'+path,{method:'POST',headers:{'apikey':SUPABASE_PUBLISHABLE_KEY,'Content-Type':file.type,'x-upsert':'false'},body:file});if(!r.ok)throw new Error('HTTP '+r.status+' '+await r.text());status.textContent='✅ Фото загружено';input.value=''}catch(err){status.textContent='❌ Не загрузилось';console.error(err)}}
+
+async function uploadToHomeworkBucket(file,folder){
+  if(!file)return null;
+  if(!['image/jpeg','image/png','image/webp'].includes(file.type))throw new Error('Нужен JPG, PNG или WEBP');
+  if(file.size>10*1024*1024)throw new Error('Фото больше 10 МБ');
+  const ext=(file.name.split('.').pop()||'jpg').toLowerCase().replace(/[^a-z0-9]/g,'');
+  const path='sasha/'+folder+'/'+Date.now()+'-'+Math.random().toString(36).slice(2,8)+'.'+ext;
+  const r=await fetch(SUPABASE_URL+'/storage/v1/object/homework-photos/'+path,{method:'POST',headers:{'apikey':SUPABASE_PUBLISHABLE_KEY,'Content-Type':file.type,'x-upsert':'false'},body:file});
+  if(!r.ok)throw new Error('Не удалось загрузить фото');
+  return path;
+}
+async function createHomework(){
+  const status=document.getElementById('parentHwStatus'),subject=document.getElementById('parentHwSubject').value,title=document.getElementById('parentHwTitle').value.trim(),description=document.getElementById('parentHwDescription').value.trim(),file=document.getElementById('parentHwPhoto').files[0];
+  if(!title){status.textContent='Напиши название задания';return}
+  status.textContent='⏳ Сохраняю…';
+  try{
+    const photo_path=await uploadToHomeworkBucket(file,'assigned');
+    const row={student_code:'sasha',subject,title,description:description||null,photo_path,status:'assigned'};
+    const r=await fetch(SUPABASE_URL+'/rest/v1/homework_assignments',{method:'POST',headers:{'apikey':SUPABASE_PUBLISHABLE_KEY,'Content-Type':'application/json','Prefer':'return=minimal'},body:JSON.stringify(row)});
+    if(!r.ok)throw new Error('Не удалось сохранить задание');
+    status.textContent='✅ ДЗ появилось у Саши';
+    document.getElementById('parentHwTitle').value='';document.getElementById('parentHwDescription').value='';document.getElementById('parentHwPhoto').value='';
+    loadHomework();
+  }catch(e){status.textContent='❌ '+e.message}
+}
+async function signedPhoto(path){
+  if(!path)return null;
+  const r=await fetch(SUPABASE_URL+'/storage/v1/object/sign/homework-photos/'+path,{method:'POST',headers:{'apikey':SUPABASE_PUBLISHABLE_KEY,'Content-Type':'application/json'},body:JSON.stringify({expiresIn:3600})});
+  if(!r.ok)return null;const x=await r.json();return SUPABASE_URL+'/storage/v1'+x.signedURL;
+}
+async function loadHomework(){
+  const box=document.getElementById('assignedHomework');if(!box)return;
+  try{
+    const r=await fetch(SUPABASE_URL+'/rest/v1/homework_assignments?student_code=eq.sasha&status=eq.assigned&select=*&order=created_at.desc',{headers:{'apikey':SUPABASE_PUBLISHABLE_KEY}});
+    if(!r.ok)throw new Error();const rows=await r.json();
+    if(!rows.length){box.innerHTML='';return}
+    const cards=await Promise.all(rows.map(async x=>{const img=await signedPhoto(x.photo_path);const subject=x.subject==='math'?'Математика':x.subject==='russian'?'Русский язык':'Другой предмет';return '<article class="assigned-card"><span class="pill">'+subject+'</span><h2>'+escapeHtml(x.title)+'</h2>'+(x.description?'<p>'+escapeHtml(x.description)+'</p>':'')+(img?'<img src="'+img+'" alt="Фото домашнего задания">':'')+'</article>'}));
+    box.innerHTML='<h2>📌 Новое от мамы</h2><div class="assigned-grid">'+cards.join('')+'</div>';
+  }catch(e){box.innerHTML='<p class="sub">Не удалось обновить новые задания.</p>'}
+}
+function escapeHtml(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+loadHomework();
