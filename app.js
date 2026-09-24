@@ -16,5 +16,20 @@ function speak(x){if('speechSynthesis'in window){speechSynthesis.cancel();let u=
 function readTask(){speak(tasks[n].text)}
 function coach(kind){let target=kind==='homework'||kind==='russian'?document.querySelector('#homeworkLena'):document.querySelector('#newLena');let msg=kind==='russian'?'Сначала прочитай задание своими словами. Что именно просит сделать упражнение?':kind==='mathnew'?'Начнём не с ответа. В задаче сначала назови: что известно и что нужно узнать?':kind==='rusnew'?'Сначала найди грамматическую основу: кто или что? что делает?': 'Покажи или прочитай условие. Я сначала объясню правило, затем задам один вопрос. Ответ за тебя не скажу.';target.textContent='👩‍🏫 Лена: '+msg;target.classList.remove('hidden')}
 function finish(){bar.style.width='100%';let sec=Math.round((Date.now()-startAt)/1000);task.innerHTML='<h2>🏆 Ремонт завершён</h2><p>Прокачано: <b>'+stars+' из '+tasks.length+'</b>. Сравниваем только с твоим прошлым результатом.</p><p>Время: '+sec+' сек. · Подсказок: '+hints+'</p><button onclick="startRepair()">Повторить позже</button>';document.querySelector('.actions').style.display='none';saveEvent(sec)}
-function saveEvent(sec){const e={student:"Саша",subject:"Математика",source_work:"С/р №3",tasks:"стр. 7–8 №1,2,5",skills:["множества","математические знаки","задача в два действия","вычисления","деление с остатком"],score:stars,total:tasks.length,hints,wrong,time_seconds:sec,independence:hints===0?"самостоятельно":"с подсказками Лены",attempt:"первая диагностическая",created_at:new Date().toISOString(),sync_status:"local_waiting_for_supabase"};localStorage.setItem('alex_last_result',JSON.stringify(e));showLast()}
+const SUPABASE_URL="https://hohichmdidpsaoitapbi.supabase.co";
+const SUPABASE_PUBLISHABLE_KEY="sb_publishable_W0SBm4JTORf-n4w-Wly0lA_dvkjjXsy";
+async function saveEvent(sec){
+  const e={student:"Саша",subject:"Математика",source_work:"С/р №3",tasks:"стр. 7–8 №1,2,5",skills:["множества","математические знаки","задача в два действия","вычисления","деление с остатком"],score:stars,total:tasks.length,hints,wrong,time_seconds:sec,independence:hints===0?"самостоятельно":"с подсказками Лены",attempt:"первая диагностическая",created_at:new Date().toISOString(),sync_status:"syncing"};
+  localStorage.setItem('alex_last_result',JSON.stringify(e));showLast();
+  const row={student_code:"sasha",session_id:"repair-"+Date.now(),event_type:"session_finish",subject:"math",activity:"repair_sr3",skill:null,question_id:null,answer_value:null,is_correct:stars===tasks.length,attempt_no:1,response_ms:sec*1000,hint_level:hints,metadata:{source_work:e.source_work,tasks:e.tasks,skills:e.skills,score:e.score,total:e.total,wrong:e.wrong,independence:e.independence,attempt:e.attempt}};
+  try{
+    const r=await fetch(SUPABASE_URL+"/rest/v1/learning_events",{method:"POST",headers:{"apikey":SUPABASE_PUBLISHABLE_KEY,"Content-Type":"application/json","Prefer":"return=minimal"},body:JSON.stringify(row)});
+    if(!r.ok)throw new Error("HTTP "+r.status+" "+await r.text());
+    e.sync_status="synced_to_supabase";
+  }catch(err){
+    e.sync_status="sync_error";
+    e.sync_error=String(err.message||err);
+  }
+  localStorage.setItem('alex_last_result',JSON.stringify(e));showLast();
+}
 function showLast(){let e=localStorage.getItem('alex_last_result');if(e)document.querySelector('#lastEvent').textContent=JSON.stringify(JSON.parse(e),null,2)}showLast();
